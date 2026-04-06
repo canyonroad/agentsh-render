@@ -20,7 +20,7 @@ done
 agentsh shim install
 echo "Shell shim installed"
 
-agentsh exec --root=/workspace warmup -- echo "shim ready"
+agentsh exec --root=/workspace warmup -- /bin/bash -c '/usr/bin/echo "shim ready"' || echo "Warmup returned non-zero (expected with enforcement)"
 echo "Shim warmed up"
 
 echo "Starting Express app on port ${PORT:-10000}..."

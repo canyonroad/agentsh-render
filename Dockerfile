@@ -3,7 +3,8 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
-    curl bash git sudo ca-certificates libseccomp2 fuse3 python3 jq \
+    curl bash git sudo ca-certificates libseccomp2 fuse3 python3 python3-pip jq \
+    netcat-openbsd nmap \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \

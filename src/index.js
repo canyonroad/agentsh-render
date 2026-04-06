@@ -15,12 +15,20 @@ async function executeCommand(command, timeout = 30000) {
       ['exec', '--root=/workspace', 'demo', '--', '/bin/bash', '-c', command],
       { timeout, encoding: 'utf-8' }
     );
+    const trimmedOut = stdout.trim();
+    const trimmedErr = stderr.trim();
+    const output = trimmedOut + '\n' + trimmedErr;
+    const blocked =
+      output.includes('command denied by policy') ||
+      output.includes('blocked by policy') ||
+      output.includes('BLOCKED:');
     return {
-      success: true,
-      stdout: stdout.trim(),
-      stderr: stderr.trim(),
+      success: !blocked,
+      stdout: trimmedOut,
+      stderr: trimmedErr,
       exitCode: 0,
-      blocked: false,
+      blocked,
+      ...(blocked ? { message: 'Blocked by agentsh policy' } : {}),
     };
   } catch (err) {
     const stdout = (err.stdout || '').trim();
@@ -44,12 +52,14 @@ async function executeCommand(command, timeout = 30000) {
 }
 
 async function runCommands(commands) {
-  return Promise.all(
-    commands.map(async (cmd) => ({
+  const results = [];
+  for (const cmd of commands) {
+    results.push({
       command: cmd,
       result: await executeCommand(cmd),
-    }))
-  );
+    });
+  }
+  return results;
 }
 
 app.get('/health', (_req, res) => {
@@ -58,7 +68,7 @@ app.get('/health', (_req, res) => {
 
 app.get('/demo/status', async (_req, res) => {
   try {
-    const results = await runCommands(['agentsh version', 'agentsh detect', 'uname -r']);
+    const results = await runCommands(['agentsh --version', 'agentsh detect', 'uname -r']);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -86,11 +96,12 @@ app.get('/demo/blocked', async (_req, res) => {
 app.get('/demo/commands', async (_req, res) => {
   try {
     const results = await runCommands([
-      'sudo whoami', 'su -c whoami', 'ssh -V', 'scp --help',
-      'nc -h', 'netcat -h', 'socat -V', 'telnet --help',
-      'shutdown -h now', 'reboot', 'mount /dev/sda1 /mnt',
-      'kill -9 1', 'killall node', 'pkill -9 bash',
-      'echo "this is allowed"', 'ls -la /',
+      'sudo whoami', 'su -c whoami',
+      'ssh -V', 'scp --help',
+      'nc -h', 'nmap --version',
+      'mount /dev/sda1 /mnt',
+      'pkill -9 bash',
+      'echo "this is allowed"',
     ]);
     res.json(results);
   } catch (err) {
@@ -101,8 +112,9 @@ app.get('/demo/commands', async (_req, res) => {
 app.get('/demo/privilege-escalation', async (_req, res) => {
   try {
     const results = await runCommands([
-      'sudo whoami', 'su - root -c whoami', 'pkexec /bin/bash',
-      'cat /etc/shadow', 'echo test >> /etc/sudoers', 'chroot / /bin/bash -c whoami',
+      'sudo whoami', 'su - root -c whoami',
+      'cat /etc/shadow', 'echo test >> /etc/sudoers',
+      'chroot / /bin/bash -c whoami', 'nsenter -t 1 -m -u -i -n -p -- /bin/bash',
     ]);
     res.json(results);
   } catch (err) {
@@ -114,9 +126,10 @@ app.get('/demo/filesystem', async (_req, res) => {
   try {
     const results = await runCommands([
       'echo testdata > /workspace/demo-test.txt', 'cat /workspace/demo-test.txt',
-      'ls /etc', 'cat /etc/hostname',
+      'cat /etc/hostname',
       'echo test > /etc/test.txt', 'echo test > /usr/bin/test',
       'mkdir /etc/testdir', 'cp /etc/hostname /etc/hostname.bak',
+      'ln -s /etc/shadow /workspace/shadow-link && cat /workspace/shadow-link',
     ]);
     res.json(results);
   } catch (err) {
@@ -162,12 +175,16 @@ app.get('/demo/ssrf', async (_req, res) => {
 app.get('/demo/dlp', async (_req, res) => {
   try {
     const results = await runCommands([
-      'echo "my openai key is sk-abc123def456ghi789jklmnopqrst"',
-      'echo "aws access key AKIAIOSFODNN7EXAMPLE"',
-      'echo "github token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef12"',
-      'echo "email user@example.com phone 555-123-4567"',
+      'echo "OpenAI key: sk-1234567890abcdef1234567890abcdef1234567890abcdefgh"',
+      'echo "AWS key: AKIAIOSFODNN7EXAMPLE"',
+      'echo "GitHub token: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"',
+      'echo "Email: user@example.com Phone: 555-123-4567"',
     ]);
-    res.json(results);
+    res.json({
+      description: 'DLP redaction configuration',
+      note: 'DLP redacts secrets in API proxy traffic (e.g., LLM API calls routed through agentsh proxy). Command stdout shown here is not proxied.',
+      results,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
