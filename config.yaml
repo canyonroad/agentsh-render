@@ -1,0 +1,71 @@
+server:
+  http:
+    addr: "127.0.0.1:18080"
+  grpc:
+    addr: "127.0.0.1:9090"
+
+logging:
+  format: json
+  output: stderr
+  rotation:
+    max_size_mb: 100
+    max_backups: 3
+    max_age_days: 7
+
+sessions:
+  base_dir: /var/lib/agentsh/sessions
+  max_sessions: 50
+  defaults:
+    timeout: 1h
+    idle_timeout: 15m
+
+audit:
+  storage:
+    type: sqlite
+    path: /var/lib/agentsh/events.db
+  format: jsonl
+  retention_days: 90
+
+security:
+  fuse:
+    enabled: false
+  landlock:
+    enabled: false
+  bash_env:
+    enabled: true
+    inject_path: /usr/lib/agentsh/bash_startup.sh
+  network:
+    interception_mode: all
+  env_inject:
+    AGENTSH_SERVER: "http://127.0.0.1:18080"
+    BASH_ENV: "/usr/lib/agentsh/bash_startup.sh"
+
+dlp:
+  mode: redact
+  patterns:
+    - name: openai_key
+      pattern: 'sk-[a-zA-Z0-9]{20,}'
+      type: custom
+    - name: anthropic_key
+      pattern: 'sk-ant-[a-zA-Z0-9-]{20,}'
+      type: custom
+    - name: aws_key
+      pattern: 'AKIA[0-9A-Z]{16}'
+      type: custom
+    - name: github_pat
+      pattern: 'ghp_[a-zA-Z0-9]{36}'
+      type: custom
+    - name: jwt
+      pattern: 'eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}'
+      type: custom
+    - name: private_key
+      pattern: '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'
+      type: custom
+    - name: slack_token
+      pattern: 'xox[bpors]-[a-zA-Z0-9-]{10,}'
+      type: custom
+  builtin_patterns:
+    - email
+    - phone
+    - credit_card
+    - ssn
