@@ -129,7 +129,7 @@ app.get('/demo/filesystem', async (_req, res) => {
       'cat /etc/hostname',
       'echo test > /etc/test.txt', 'echo test > /usr/bin/test',
       'mkdir /etc/testdir', 'cp /etc/hostname /etc/hostname.bak',
-      'ln -s /etc/shadow /workspace/shadow-link && cat /workspace/shadow-link',
+      'rm -f /workspace/shadow-link && ln -s /etc/shadow /workspace/shadow-link && cat /workspace/shadow-link',
     ]);
     res.json(results);
   } catch (err) {
