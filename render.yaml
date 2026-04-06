@@ -1,0 +1,13 @@
+services:
+  - type: web
+    runtime: docker
+    name: agentsh-demo
+    repo: https://github.com/canyonroad/agentsh-render
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
