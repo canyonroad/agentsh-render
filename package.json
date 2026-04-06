@@ -1,0 +1,19 @@
+{
+  "name": "agentsh-render",
+  "version": "1.0.0",
+  "description": "Runtime security for AI agents on Render using agentsh",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.1.0"
+  },
+  "license": "MIT"
+}
