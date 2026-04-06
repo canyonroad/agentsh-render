@@ -1,0 +1,190 @@
+# agentsh security policy for Render
+
+file_rules:
+  - name: workspace-access
+    paths: [/workspace/**]
+    operations: [read, write, create, mkdir, chmod, rename]
+    action: allow
+  - name: workspace-delete
+    paths: [/workspace/**]
+    operations: [delete]
+    action: soft_delete
+  - name: home-access
+    paths: [/home/**]
+    operations: [read, write, create, mkdir, chmod, rename]
+    action: allow
+  - name: home-delete
+    paths: [/home/**]
+    operations: [delete]
+    action: soft_delete
+  - name: tmp-access
+    paths: [/tmp/**, /var/tmp/**]
+    operations: [read, write, create, delete, mkdir, chmod, rename]
+    action: allow
+  - name: system-read
+    paths: [/usr/**, /lib/**, /lib64/**, /bin/**, /sbin/**]
+    operations: [read]
+    action: allow
+  - name: etc-read
+    paths: [/etc/**]
+    operations: [read]
+    action: allow
+  - name: block-dangerous-binaries
+    paths:
+      - /usr/bin/sudo
+      - /usr/bin/su
+      - /usr/bin/pkexec
+      - /usr/bin/doas
+      - /bin/su
+      - /usr/sbin/chroot
+      - /usr/bin/nsenter
+      - /usr/bin/unshare
+    operations: [execute]
+    action: deny
+  - name: credential-files
+    paths:
+      - ~/.ssh/**
+      - ~/.aws/**
+      - ~/.gcloud/**
+      - ~/.azure/**
+      - ~/.config/gcloud/**
+      - ~/.kube/**
+      - "**/.env"
+      - "**/.env.*"
+      - ~/.git-credentials
+      - ~/.netrc
+    operations: [read, write]
+    action: approve
+    timeout: 2m
+  - name: block-shadow
+    paths: [/etc/shadow, /etc/shadow-, /etc/gshadow, /etc/gshadow-, /etc/sudoers, /etc/sudoers.d/**]
+    operations: [read, write]
+    action: deny
+  - name: block-proc-sys
+    paths: [/proc/*/environ, /proc/*/mem, /sys/**]
+    operations: [read, write]
+    action: deny
+  - name: default-deny-files
+    paths: ["**"]
+    operations: [write, create, delete, mkdir, chmod, rename]
+    action: deny
+
+network_rules:
+  - name: localhost
+    hosts: ["127.0.0.1", "::1", "localhost"]
+    action: allow
+  - name: npm-registry
+    hosts: ["registry.npmjs.org"]
+    ports: [443]
+    action: allow
+  - name: pypi
+    hosts: ["pypi.org", "files.pythonhosted.org"]
+    ports: [443]
+    action: allow
+  - name: cargo
+    hosts: ["crates.io", "static.crates.io"]
+    ports: [443]
+    action: allow
+  - name: go-proxy
+    hosts: ["proxy.golang.org", "sum.golang.org"]
+    ports: [443]
+    action: allow
+  - name: github
+    hosts: ["github.com", "*.github.com", "raw.githubusercontent.com"]
+    ports: [443, 22]
+    action: allow
+  - name: gitlab
+    hosts: ["gitlab.com", "*.gitlab.com"]
+    ports: [443, 22]
+    action: allow
+  - name: bitbucket
+    hosts: ["bitbucket.org", "*.bitbucket.org"]
+    ports: [443, 22]
+    action: allow
+  - name: block-cloud-metadata
+    hosts: ["169.254.169.254", "metadata.google.internal", "100.100.100.200"]
+    action: deny
+  - name: block-private-networks
+    cidrs: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"]
+    action: deny
+  - name: block-evil
+    hosts: ["evil.com", "*.evil.com", "malicious.example.com"]
+    action: deny
+  - name: default-deny-network
+    hosts: ["*"]
+    action: deny
+
+command_rules:
+  - name: safe-commands
+    commands: [ls, cat, head, tail, grep, find, wc, sort, uniq, diff, pwd, echo, date, which, whoami, id, uname, env, printenv, "true", "false", test, "[", printf, basename, dirname, realpath, readlink, stat, file, du, df, free, uptime, hostname, tee, xargs, tr, cut, awk, sed, "yes", seq, sleep, timeout, mktemp, touch, mkdir, cp, mv, rm, ln, chmod, chown]
+    action: allow
+  - name: shells
+    commands: [bash, sh, /bin/bash, /bin/sh]
+    action: allow
+  - name: dev-tools
+    commands: [git, node, npm, npx, python, python3, pip, pip3, cargo, go, make, cc, gcc, g++, rustc, java, javac, ruby, perl]
+    action: allow
+  - name: network-fetch
+    commands: [curl, wget]
+    action: allow
+  - name: block-git-force-push
+    patterns: ["git push --force", "git push -f"]
+    action: deny
+  - name: block-git-push-main
+    patterns: ["git push origin main", "git push origin master"]
+    action: deny
+  - name: block-git-reset-hard
+    patterns: ["git reset --hard"]
+    action: deny
+  - name: block-git-clean-force
+    patterns: ["git clean -f"]
+    action: deny
+  - name: block-network-tools
+    commands: [nc, netcat, ncat, socat, telnet, nmap]
+    action: deny
+  - name: block-ssh
+    commands: [ssh, scp, sftp, rsync]
+    action: deny
+  - name: block-shell-escape
+    commands: [sudo, su, doas, pkexec, chroot, nsenter, unshare]
+    action: deny
+  - name: block-system
+    commands: [shutdown, reboot, halt, poweroff, systemctl, service, mount, umount, dd, fdisk, mkfs, parted]
+    action: deny
+  - name: block-process-control
+    commands: [kill, killall, pkill]
+    action: deny
+  - name: block-bash-builtins
+    commands: [enable, ulimit, umask, builtin, command]
+    action: deny
+  - name: approve-package-install
+    patterns: ["npm install*", "npm add*", "pip install*", "pip3 install*", "cargo install*"]
+    action: approve
+    timeout: 2m
+  - name: default-allow-commands
+    commands: ["*"]
+    action: allow
+
+resource_limits:
+  max_memory_mb: 2048
+  cpu_quota_percent: 50
+  max_pids: 100
+  disk_read_mbps: 50
+  disk_write_mbps: 25
+  command_timeout: 5m
+  session_timeout: 1h
+  idle_timeout: 15m
+
+audit:
+  log_allowed: true
+  log_denied: true
+  log_approved: true
+  include_stdout: true
+  include_stderr: true
+  exclude_file_content: true
+  retention_days: 90
+
+environment:
+  allowlist: [HOME, PATH, USER, SHELL, TERM, LANG, "LC_*", HOSTNAME, HTTPS_PROXY, HTTP_PROXY, "AGENTSH_*", NODE_ENV, NODE_PATH, GOPATH, CARGO_HOME, PORT]
+  denylist: ["*_SECRET*", "*_TOKEN", "*_KEY", "*_PASSWORD", DATABASE_URL, OPENAI_API_KEY, ANTHROPIC_API_KEY, "AWS_*"]
+  block_enumeration: true
