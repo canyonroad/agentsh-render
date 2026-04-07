@@ -1,12 +1,43 @@
 import express from 'express';
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
+import rateLimit from 'express-rate-limit';
 
 const execFile = promisify(execFileCb);
 const app = express();
 const PORT = process.env.PORT || 10000;
+const API_KEY = process.env.API_KEY;
 
 app.use(express.json());
+
+// Rate limiting -- per IP
+const demoLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, try again later' },
+});
+
+const executeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, try again later' },
+});
+
+app.use('/demo', demoLimiter);
+
+// API key auth for /execute (only when API_KEY env var is set)
+function requireApiKey(req, res, next) {
+  if (!API_KEY) return next();
+  const key = req.headers['x-api-key'] || req.query.api_key;
+  if (key !== API_KEY) {
+    return res.status(401).json({ error: 'Invalid or missing API key' });
+  }
+  next();
+}
 
 async function executeCommand(command, timeout = 30000) {
   try {
@@ -218,10 +249,16 @@ app.get('/demo/network', async (_req, res) => {
   }
 });
 
-app.post('/execute', async (req, res) => {
+app.post('/execute', executeLimiter, requireApiKey, async (req, res) => {
   const { command } = req.body;
   if (!command || typeof command !== 'string') {
     return res.status(400).json({ error: 'Missing "command" in request body' });
+  }
+  if (command.trim().length === 0) {
+    return res.status(400).json({ error: 'Command cannot be empty' });
+  }
+  if (command.length > 1024) {
+    return res.status(400).json({ error: 'Command too long (max 1024 characters)' });
   }
   try {
     const result = await executeCommand(command);

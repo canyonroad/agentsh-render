@@ -255,7 +255,17 @@ agentsh-render/
 | GET | `/demo/dlp` | 4 | DLP configuration and redaction info |
 | GET | `/demo/devtools` | 6 | Python, Node.js, git, curl, pip3, grep |
 | GET | `/demo/network` | 5 | Network filtering: evil.com, private IPs, metadata blocked |
-| POST | `/execute` | -- | Execute user-provided command |
+| POST | `/execute` | -- | Execute user-provided command (rate limited, optional API key) |
+
+## Abuse Protection
+
+- **Rate limiting** -- per-IP limits via `express-rate-limit`:
+  - `/demo/*` endpoints: 30 requests/minute per IP
+  - `POST /execute`: 10 requests/minute per IP
+  - `/health`: no limit
+- **API key authentication** on `/execute` -- optional, enforced when the `API_KEY` environment variable is set. Pass via `X-API-Key` header or `?api_key=` query parameter. When `API_KEY` is not set, `/execute` remains open for demo use.
+- **Request validation** -- commands are limited to 1024 characters, empty commands rejected
+- **agentsh governance** -- even if abuse bypasses rate limits, the sandbox policy still blocks dangerous commands, network access, and file modifications
 
 ## Testing
 
