@@ -1,7 +1,6 @@
 # agentsh Server Configuration for Render
-# ptrace (fail-open) + seccomp file_monitor enforcement
-# ptrace not available in standard Docker but fail-open degradation
-# enables seccomp file_monitor for command/file enforcement
+# Landlock (kernel path restrictions) + seccomp file_monitor (policy enforcement)
+# Optimized via agentsh detect config on Render (kernel 6.8.0-1046-aws)
 
 server:
   http:
@@ -65,6 +64,29 @@ sandbox:
       enabled: true
       enforce_without_fuse: true
 
+  # Landlock kernel enforcement (ABI v5 on Render)
+  # allow_execute lets the shell shim at /bin/bash run
+  landlock:
+    enabled: true
+    allow_execute:
+      - /usr/bin
+      - /bin
+      - /usr/local/bin
+      - /usr/sbin
+      - /sbin
+      - /usr/lib
+      - /lib
+    network:
+      allow_connect_tcp: true
+      allow_bind_tcp: false
+
+  # BASH_ENV disables dangerous builtins (kill, enable, ulimit, etc.)
+  env_inject:
+    AGENTSH_SERVER: "http://127.0.0.1:18080"
+    BASH_ENV: "/usr/lib/agentsh/bash_startup.sh"
+
+  # ptrace not available on Render (no SYS_PTRACE) but fail_open
+  # enables graceful degradation to seccomp file_monitor for policy enforcement
   ptrace:
     enabled: true
     attach_mode: "children"
@@ -79,9 +101,6 @@ sandbox:
       seccomp_prefilter: true
       max_tracees: 100
       max_hold_ms: 5000
-
-landlock:
-  enabled: false
 
 policies:
   dir: "/etc/agentsh/policies"
