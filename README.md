@@ -1,6 +1,6 @@
 # agentsh + Render
 
-Runtime security governance for AI agents using [agentsh](https://github.com/canyonroad/agentsh) v0.16.9 with [Render](https://render.com) Docker Web Services.
+Runtime security governance for AI agents using [agentsh](https://github.com/canyonroad/agentsh) v0.18.1 with [Render](https://render.com) Docker Web Services.
 
 ## Why agentsh + Render?
 
@@ -213,7 +213,7 @@ The `default.yaml` policy enforces:
 
 ```
 agentsh-render/
-├── Dockerfile              # Container image with agentsh v0.16.9
+├── Dockerfile              # Container image with agentsh v0.18.1
 ├── config.yaml             # Server config (Landlock, seccomp, DLP, network, cgroups)
 ├── default.yaml            # Security policy (commands, network, files)
 ├── startup.sh              # Starts agentsh server, then Express app
@@ -288,7 +288,7 @@ TEST_URL=https://agentsh-demo.onrender.com npm test
 | Kernel | 6.8.0-1051-aws |
 | Node.js | 20 |
 | Python | 3.10 |
-| agentsh | v0.16.9 (`.deb` package) |
+| agentsh | v0.18.1 (`.deb` package) |
 | Enforcement | Landlock ABI v5 + seccomp + cgroups v2 + capability-drop |
 | Protection Score | 100/100 |
 | Workspace | `/workspace` |

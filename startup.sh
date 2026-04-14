@@ -17,7 +17,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-agentsh shim install
+agentsh shim install-shell --shim /usr/bin/agentsh-shell-shim --bash --i-understand-this-modifies-the-host
 echo "Shell shim installed"
 
 agentsh exec --root=/workspace warmup -- /bin/bash -c '/usr/bin/echo "shim ready"' || echo "Warmup returned non-zero (expected with enforcement)"
