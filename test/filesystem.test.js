@@ -5,7 +5,7 @@ import { expectBlocked, expectAllowed } from './helpers/assertions.js';
 describe('filesystem protection', () => {
   it('writing to /workspace is allowed', async () => {
     const results = await fetchDemo('filesystem');
-    expectAllowed(findResult(results, 'echo testdata'));
+    expectAllowed(findResult(results, 'write /workspace'));
   });
 
   it('reading from /workspace is allowed', async () => {
@@ -24,7 +24,7 @@ describe('filesystem protection', () => {
 
   it('writing to /etc is blocked', async () => {
     const results = await fetchDemo('filesystem');
-    expectBlocked(findResult(results, 'echo test > /etc'));
+    expectBlocked(findResult(results, 'write /etc'));
   });
 
   it('writing to /usr is blocked', async () => {

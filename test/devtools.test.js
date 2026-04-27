@@ -38,10 +38,10 @@ describe('development tools', () => {
     expect(r.result.stdout).toContain('pip');
   });
 
-  it('shell pipes work', async () => {
+  it('grep is available', async () => {
     const results = await fetchDemo('devtools');
-    const r = findResult(results, 'grep hello');
+    const r = findResult(results, 'grep root');
     expectAllowed(r);
-    expect(r.result.stdout).toContain('hello');
+    expect(r.result.stdout).toContain('root');
   });
 });

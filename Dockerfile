@@ -11,7 +11,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://github.com/canyonroad/agentsh/releases/download/v0.18.1/agentsh_0.18.1_linux_amd64.deb \
+RUN curl -fsSL https://github.com/canyonroad/agentsh/releases/download/v0.18.3/agentsh_0.18.3_linux_amd64.deb \
     -o /tmp/agentsh.deb && dpkg -i /tmp/agentsh.deb && rm /tmp/agentsh.deb
 
 RUN mkdir -p /etc/agentsh/policies /var/lib/agentsh/sessions /workspace

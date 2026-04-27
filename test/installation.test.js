@@ -7,6 +7,7 @@ describe('installation', () => {
     const version = findResult(results, 'agentsh --version');
     expect(version.result.success).toBe(true);
     expect(version.result.stdout).toMatch(/agentsh/i);
+    expect(version.result.stdout).toContain('0.18.3');
   });
 
   it('agentsh detect runs successfully', async () => {

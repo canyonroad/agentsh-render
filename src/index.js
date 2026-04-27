@@ -29,6 +29,36 @@ const executeLimiter = rateLimit({
 
 app.use('/demo', demoLimiter);
 
+let sessionCounter = 0;
+let commandQueue = Promise.resolve();
+
+function nextSessionId() {
+  sessionCounter = (sessionCounter + 1) % Number.MAX_SAFE_INTEGER;
+  return `demo-${Date.now()}-${sessionCounter}`;
+}
+
+function directCommand(command, args) {
+  return { command, args };
+}
+
+function normalizeCommand(command) {
+  if (typeof command === 'string') {
+    return { command, args: ['/bin/bash', '-c', command] };
+  }
+  return command;
+}
+
+async function destroySession(sessionId) {
+  try {
+    await execFile('agentsh', ['session', 'destroy', sessionId], {
+      timeout: 5000,
+      encoding: 'utf-8',
+    });
+  } catch {
+    // The session may not exist if policy rejected the command before creation.
+  }
+}
+
 // API key auth for /execute (only when API_KEY env var is set)
 function requireApiKey(req, res, next) {
   if (!API_KEY) return next();
@@ -40,10 +70,18 @@ function requireApiKey(req, res, next) {
 }
 
 async function executeCommand(command, timeout = 30000) {
+  const run = commandQueue.then(() => executeCommandNow(command, timeout));
+  commandQueue = run.catch(() => {});
+  return run;
+}
+
+async function executeCommandNow(command, timeout = 30000) {
+  const spec = normalizeCommand(command);
+  const sessionId = nextSessionId();
   try {
     const { stdout, stderr } = await execFile(
       'agentsh',
-      ['exec', '--root=/workspace', 'demo', '--', '/bin/bash', '-c', command],
+      ['exec', '--root=/workspace', sessionId, '--', ...spec.args],
       { timeout, encoding: 'utf-8' }
     );
     const trimmedOut = stdout.trim();
@@ -79,15 +117,18 @@ async function executeCommand(command, timeout = 30000) {
       blocked,
       message: blocked ? 'Blocked by agentsh policy' : stderr,
     };
+  } finally {
+    await destroySession(sessionId);
   }
 }
 
 async function runCommands(commands) {
   const results = [];
   for (const cmd of commands) {
+    const spec = normalizeCommand(cmd);
     results.push({
-      command: cmd,
-      result: await executeCommand(cmd),
+      command: spec.command,
+      result: await executeCommand(spec),
     });
   }
   return results;
@@ -99,7 +140,11 @@ app.get('/health', (_req, res) => {
 
 app.get('/demo/status', async (_req, res) => {
   try {
-    const results = await runCommands(['agentsh --version', 'agentsh detect', 'uname -r']);
+    const results = await runCommands([
+      directCommand('agentsh --version', ['agentsh', '--version']),
+      directCommand('agentsh detect', ['agentsh', 'detect']),
+      directCommand('uname -r', ['uname', '-r']),
+    ]);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -108,7 +153,12 @@ app.get('/demo/status', async (_req, res) => {
 
 app.get('/demo/allowed', async (_req, res) => {
   try {
-    const results = await runCommands(['whoami', 'pwd', 'ls /workspace', 'echo "hello world"']);
+    const results = await runCommands([
+      directCommand('whoami', ['whoami']),
+      directCommand('pwd', ['pwd']),
+      directCommand('ls /workspace', ['ls', '/workspace']),
+      directCommand('echo "hello world"', ['echo', 'hello world']),
+    ]);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -117,7 +167,11 @@ app.get('/demo/allowed', async (_req, res) => {
 
 app.get('/demo/blocked', async (_req, res) => {
   try {
-    const results = await runCommands(['nc -h', 'nmap --version', 'curl -s --max-time 3 http://169.254.169.254/latest/meta-data/']);
+    const results = await runCommands([
+      directCommand('nc -h', ['nc', '-h']),
+      directCommand('nmap --version', ['nmap', '--version']),
+      directCommand('curl -s --max-time 3 http://169.254.169.254/latest/meta-data/', ['curl', '-s', '--max-time', '3', 'http://169.254.169.254/latest/meta-data/']),
+    ]);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -127,12 +181,15 @@ app.get('/demo/blocked', async (_req, res) => {
 app.get('/demo/commands', async (_req, res) => {
   try {
     const results = await runCommands([
-      'sudo whoami', 'su -c whoami',
-      'ssh -V', 'scp --help',
-      'nc -h', 'nmap --version',
-      'mount /dev/sda1 /mnt',
-      'pkill -9 bash',
-      'echo "this is allowed"',
+      directCommand('sudo whoami', ['sudo', 'whoami']),
+      directCommand('su -c whoami', ['su', '-c', 'whoami']),
+      directCommand('ssh -V', ['ssh', '-V']),
+      directCommand('scp --help', ['scp', '--help']),
+      directCommand('nc -h', ['nc', '-h']),
+      directCommand('nmap --version', ['nmap', '--version']),
+      directCommand('mount /dev/sda1 /mnt', ['mount', '/dev/sda1', '/mnt']),
+      directCommand('pkill -9 bash', ['pkill', '-9', 'bash']),
+      directCommand('echo "this is allowed"', ['echo', 'this is allowed']),
     ]);
     res.json(results);
   } catch (err) {
@@ -143,9 +200,12 @@ app.get('/demo/commands', async (_req, res) => {
 app.get('/demo/privilege-escalation', async (_req, res) => {
   try {
     const results = await runCommands([
-      'sudo whoami', 'su - root -c whoami',
-      'cat /etc/shadow', 'echo test >> /etc/sudoers',
-      'chroot / /bin/bash -c whoami', 'nsenter -t 1 -m -u -i -n -p -- /bin/bash',
+      directCommand('sudo whoami', ['sudo', 'whoami']),
+      directCommand('su - root -c whoami', ['su', '-', 'root', '-c', 'whoami']),
+      directCommand('cat /etc/shadow', ['cat', '/etc/shadow']),
+      directCommand('python3 append /etc/sudoers', ['python3', '-c', 'from pathlib import Path; Path("/etc/sudoers").open("a").write("test\\n")']),
+      directCommand('chroot / /bin/bash -c whoami', ['chroot', '/', '/bin/bash', '-c', 'whoami']),
+      directCommand('nsenter -t 1 -m -u -i -n -p -- /bin/bash', ['nsenter', '-t', '1', '-m', '-u', '-i', '-n', '-p', '--', '/bin/bash']),
     ]);
     res.json(results);
   } catch (err) {
@@ -156,11 +216,14 @@ app.get('/demo/privilege-escalation', async (_req, res) => {
 app.get('/demo/filesystem', async (_req, res) => {
   try {
     const results = await runCommands([
-      'echo testdata > /workspace/demo-test.txt', 'cat /workspace/demo-test.txt',
-      'cat /etc/hostname',
-      'echo test > /etc/test.txt', 'echo test > /usr/bin/test',
-      'mkdir /etc/testdir', 'cp /etc/hostname /etc/hostname.bak',
-      'rm -f /workspace/shadow-link && ln -s /etc/shadow /workspace/shadow-link && cat /workspace/shadow-link',
+      directCommand('python3 write /workspace/demo-test.txt', ['python3', '-c', 'from pathlib import Path; Path("/workspace/demo-test.txt").write_text("testdata\\n")']),
+      directCommand('cat /workspace/demo-test.txt', ['cat', '/workspace/demo-test.txt']),
+      directCommand('cat /etc/hostname', ['cat', '/etc/hostname']),
+      directCommand('python3 write /etc/test.txt', ['python3', '-c', 'from pathlib import Path; Path("/etc/test.txt").write_text("test\\n")']),
+      directCommand('python3 write /usr/bin/test', ['python3', '-c', 'from pathlib import Path; Path("/usr/bin/test").write_text("test\\n")']),
+      directCommand('mkdir /etc/testdir', ['mkdir', '/etc/testdir']),
+      directCommand('cp /etc/hostname /etc/hostname.bak', ['cp', '/etc/hostname', '/etc/hostname.bak']),
+      directCommand('python3 symlink escape /workspace/shadow-link', ['python3', '-c', 'import os\np="/workspace/shadow-link"\ntry:\n    os.unlink(p)\nexcept FileNotFoundError:\n    pass\nos.symlink("/etc/shadow", p)\nprint(open(p).read())']),
     ]);
     res.json(results);
   } catch (err) {
@@ -171,12 +234,12 @@ app.get('/demo/filesystem', async (_req, res) => {
 app.get('/demo/cloud-metadata', async (_req, res) => {
   try {
     const results = await runCommands([
-      'curl -s --max-time 3 http://169.254.169.254/latest/meta-data/',
-      'curl -s --max-time 3 -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/',
-      'curl -s --max-time 3 -H "Metadata: true" "http://169.254.169.254/metadata/instance?api-version=2021-02-01"',
-      'curl -s --max-time 3 http://169.254.169.254/metadata/v1/',
-      'curl -s --max-time 3 http://100.100.100.200/latest/meta-data/',
-      'curl -s --max-time 3 http://169.254.169.254/opc/v2/instance/',
+      directCommand('curl -s --max-time 3 http://169.254.169.254/latest/meta-data/', ['curl', '-s', '--max-time', '3', 'http://169.254.169.254/latest/meta-data/']),
+      directCommand('curl -s --max-time 3 -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/', ['curl', '-s', '--max-time', '3', '-H', 'Metadata-Flavor: Google', 'http://metadata.google.internal/computeMetadata/v1/']),
+      directCommand('curl -s --max-time 3 -H "Metadata: true" "http://169.254.169.254/metadata/instance?api-version=2021-02-01"', ['curl', '-s', '--max-time', '3', '-H', 'Metadata: true', 'http://169.254.169.254/metadata/instance?api-version=2021-02-01']),
+      directCommand('curl -s --max-time 3 http://169.254.169.254/metadata/v1/', ['curl', '-s', '--max-time', '3', 'http://169.254.169.254/metadata/v1/']),
+      directCommand('curl -s --max-time 3 http://100.100.100.200/latest/meta-data/', ['curl', '-s', '--max-time', '3', 'http://100.100.100.200/latest/meta-data/']),
+      directCommand('curl -s --max-time 3 http://169.254.169.254/opc/v2/instance/', ['curl', '-s', '--max-time', '3', 'http://169.254.169.254/opc/v2/instance/']),
     ]);
     res.json(results);
   } catch (err) {
@@ -187,15 +250,15 @@ app.get('/demo/cloud-metadata', async (_req, res) => {
 app.get('/demo/ssrf', async (_req, res) => {
   try {
     const results = await runCommands([
-      'curl -s --max-time 3 http://10.0.0.1/',
-      'curl -s --max-time 3 http://10.255.255.255/',
-      'curl -s --max-time 3 http://172.16.0.1/',
-      'curl -s --max-time 3 http://172.31.255.255/',
-      'curl -s --max-time 3 http://192.168.0.1/',
-      'curl -s --max-time 3 http://192.168.255.255/',
-      'curl -s --max-time 3 http://169.254.0.1/',
-      'curl -s --max-time 3 http://127.0.0.1:18080/health',
-      'curl -s --max-time 3 https://registry.npmjs.org/express | head -c 100',
+      directCommand('curl -s --max-time 3 http://10.0.0.1/', ['curl', '-s', '--max-time', '3', 'http://10.0.0.1/']),
+      directCommand('curl -s --max-time 3 http://10.255.255.255/', ['curl', '-s', '--max-time', '3', 'http://10.255.255.255/']),
+      directCommand('curl -s --max-time 3 http://172.16.0.1/', ['curl', '-s', '--max-time', '3', 'http://172.16.0.1/']),
+      directCommand('curl -s --max-time 3 http://172.31.255.255/', ['curl', '-s', '--max-time', '3', 'http://172.31.255.255/']),
+      directCommand('curl -s --max-time 3 http://192.168.0.1/', ['curl', '-s', '--max-time', '3', 'http://192.168.0.1/']),
+      directCommand('curl -s --max-time 3 http://192.168.255.255/', ['curl', '-s', '--max-time', '3', 'http://192.168.255.255/']),
+      directCommand('curl -s --max-time 3 http://169.254.0.1/', ['curl', '-s', '--max-time', '3', 'http://169.254.0.1/']),
+      directCommand('curl -s --max-time 3 http://127.0.0.1:18080/health', ['curl', '-s', '--max-time', '3', 'http://127.0.0.1:18080/health']),
+      directCommand('curl -s --max-time 3 -I https://registry.npmjs.org/express', ['curl', '-s', '--max-time', '3', '-I', 'https://registry.npmjs.org/express']),
     ]);
     res.json(results);
   } catch (err) {
@@ -206,10 +269,10 @@ app.get('/demo/ssrf', async (_req, res) => {
 app.get('/demo/dlp', async (_req, res) => {
   try {
     const results = await runCommands([
-      'echo "OpenAI key: sk-1234567890abcdef1234567890abcdef1234567890abcdefgh"',
-      'echo "AWS key: AKIAIOSFODNN7EXAMPLE"',
-      'echo "GitHub token: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"',
-      'echo "Email: user@example.com Phone: 555-123-4567"',
+      directCommand('echo "OpenAI key: sk-1234567890abcdef1234567890abcdef1234567890abcdefgh"', ['echo', 'OpenAI key: sk-1234567890abcdef1234567890abcdef1234567890abcdefgh']),
+      directCommand('echo "AWS key: AKIAIOSFODNN7EXAMPLE"', ['echo', 'AWS key: AKIAIOSFODNN7EXAMPLE']),
+      directCommand('echo "GitHub token: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"', ['echo', 'GitHub token: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx']),
+      directCommand('echo "Email: user@example.com Phone: 555-123-4567"', ['echo', 'Email: user@example.com Phone: 555-123-4567']),
     ]);
     res.json({
       description: 'DLP redaction configuration',
@@ -224,9 +287,12 @@ app.get('/demo/dlp', async (_req, res) => {
 app.get('/demo/devtools', async (_req, res) => {
   try {
     const results = await runCommands([
-      'python3 --version', 'node --version', 'git --version',
-      'curl --version | head -1', 'pip3 --version',
-      'echo "hello world" | grep hello',
+      directCommand('python3 --version', ['python3', '--version']),
+      directCommand('node --version', ['node', '--version']),
+      directCommand('git --version', ['git', '--version']),
+      directCommand('curl --version', ['curl', '--version']),
+      directCommand('pip3 --version', ['pip3', '--version']),
+      directCommand('grep root /etc/passwd', ['grep', 'root', '/etc/passwd']),
     ]);
     res.json(results);
   } catch (err) {
@@ -237,11 +303,11 @@ app.get('/demo/devtools', async (_req, res) => {
 app.get('/demo/network', async (_req, res) => {
   try {
     const results = await runCommands([
-      'curl -s --max-time 3 http://evil.com',
-      'curl -s --max-time 3 http://10.0.0.1',
-      'curl -s --max-time 3 http://169.254.169.254',
-      'curl -s --max-time 3 http://127.0.0.1:18080/health',
-      'curl -s --max-time 3 https://registry.npmjs.org/express | head -c 100',
+      directCommand('curl -s --max-time 3 http://evil.com', ['curl', '-s', '--max-time', '3', 'http://evil.com']),
+      directCommand('curl -s --max-time 3 http://10.0.0.1', ['curl', '-s', '--max-time', '3', 'http://10.0.0.1']),
+      directCommand('curl -s --max-time 3 http://169.254.169.254', ['curl', '-s', '--max-time', '3', 'http://169.254.169.254']),
+      directCommand('curl -s --max-time 3 http://127.0.0.1:18080/health', ['curl', '-s', '--max-time', '3', 'http://127.0.0.1:18080/health']),
+      directCommand('curl -s --max-time 3 -I https://registry.npmjs.org/express', ['curl', '-s', '--max-time', '3', '-I', 'https://registry.npmjs.org/express']),
     ]);
     res.json(results);
   } catch (err) {
